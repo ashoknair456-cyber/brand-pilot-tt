@@ -1,57 +1,83 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate, Link } from 'react-router-dom';
-import { Mail, Lock, User, Loader2, Rocket, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
+import { Mail, Lock, User, Loader2, Rocket, ArrowLeft, ArrowRight, Eye, EyeOff, CheckCircle2, AlertCircle, Phone } from 'lucide-react';
 import ThreeBackground from '../components/ThreeBackground';
 import GoogleIcon from '../components/GoogleIcon';
 import { useGoogleLogin } from '@react-oauth/google';
 
-const Signup: React.FC = () => {
-  const { signup, verifyEmail, loginWithGoogleToken, loginWithGoogleCode, getGoogleAuthUrl, user, isAuthenticated, isVerified } = useAuth();
+export const Signup: React.FC = () => {
+  const { signup, loginWithGoogleToken, loginWithGoogleCode, getGoogleAuthUrl, user, isAuthenticated, isVerified } = useAuth();
   const navigate = useNavigate();
-
-  // Steps: 'form' | 'verify'
-  const [step, setStep] = useState<'form' | 'verify'>('form');
+  const location = useLocation();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [mobile, setMobile] = useState('');
   const [password, setPassword] = useState('');
-  const [code, setCode] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [agreeTerms, setAgreeTerms] = useState(true);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // If user is logged in but not verified, jump to verify step
+  // If already authenticated and verified, redirect to dashboard or original target
   useEffect(() => {
-    if (isAuthenticated && !isVerified) {
-      setStep('verify');
-      if (user?.email) setEmail(user.email);
+    if (isAuthenticated && isVerified) {
+      const from = (location.state as any)?.from?.pathname || '/';
+      navigate(from, { replace: true });
     }
-  }, [isAuthenticated, isVerified, user]);
+  }, [isAuthenticated, isVerified, navigate, location]);
+
+  // Real-time password strength validation rules
+  const hasMinLength = password.length >= 8;
+  const hasUpper = /[A-Z]/.test(password);
+  const hasLower = /[a-z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+  const passwordsMatch = password.length > 0 && password === confirmPassword;
+  const isPasswordValid = hasMinLength && hasUpper && hasLower && hasNumber && hasSpecial;
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
-    try {
-      await signup(name, email, password);
-      setStep('verify');
-    } catch (err: any) {
-      setError(err.message || 'Signup failed');
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const handleVerify = async (e: React.FormEvent) => {
-    e.preventDefault();
+    if (!name || name.trim().length < 2) {
+      setError('Please enter your full name (at least 2 characters).');
+      return;
+    }
+
+    if (!email || !email.includes('@')) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
+    if (!isPasswordValid) {
+      setError('Please ensure your password satisfies all security requirements.');
+      return;
+    }
+
+    if (!passwordsMatch) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    if (!agreeTerms) {
+      setError('Please agree to the Terms & Conditions to proceed.');
+      return;
+    }
+
     setLoading(true);
-    setError('');
     try {
-      await verifyEmail(email, code);
-      navigate('/');
+      await signup(name.trim(), email.trim().toLowerCase(), password, mobile.trim(), agreeTerms);
+      // Transition to the dedicated OTP page
+      navigate(`/verify-otp?email=${encodeURIComponent(email.trim().toLowerCase())}`, {
+        state: { email: email.trim().toLowerCase(), from: location.state?.from }
+      });
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -68,7 +94,8 @@ const Signup: React.FC = () => {
         } else if (response.access_token) {
           await loginWithGoogleToken(response.access_token);
         }
-        navigate('/');
+        const from = (location.state as any)?.from?.pathname || '/';
+        navigate(from, { replace: true });
       } catch (err: any) {
         setError(err.message || 'Google authentication failed on server');
       } finally {
@@ -76,7 +103,7 @@ const Signup: React.FC = () => {
       }
     },
     onError: (errorResponse) => {
-      console.warn('Google login popup error/canceled:', errorResponse);
+      console.warn('Google sign-in canceled or failed:', errorResponse);
       setError('Google Sign-In was cancelled or failed.');
       setLoading(false);
     }
@@ -93,7 +120,6 @@ const Signup: React.FC = () => {
     try {
       handleGooglePopup();
     } catch (err: any) {
-      // Fallback to full browser redirect flow
       try {
         setLoading(true);
         const url = await getGoogleAuthUrl();
@@ -106,139 +132,241 @@ const Signup: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen relative flex items-center justify-center p-4">
+    <div className="min-h-screen relative flex items-center justify-center p-4 text-slate-200 selection:bg-cyan-500/30">
       <ThreeBackground mode="flow" />
 
-      <div className="w-full max-w-md relative z-10">
-        <div className="glass-panel p-8 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] border border-slate-700/50 backdrop-blur-xl">
+      <div className="w-full max-w-md relative z-10 my-8">
+        <div className="glass-panel p-8 md:p-10 rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.6)] border border-slate-700/50 backdrop-blur-2xl">
 
-          {step === 'form' && (
-            <Link to="/login" className="flex items-center gap-2 text-slate-500 hover:text-white mb-6 text-sm transition-colors">
-              <ArrowLeft className="w-4 h-4" /> Back to Login
+          <div className="mb-6 flex items-center justify-between">
+            <Link
+              to="/login"
+              className="inline-flex items-center gap-1.5 text-xs font-mono text-slate-400 hover:text-white transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" /> Back to Login
             </Link>
-          )}
+            <span className="text-[10px] font-mono uppercase tracking-widest text-cyan-400 bg-cyan-950/60 px-2.5 py-1 rounded-full border border-cyan-500/30">
+              Registration
+            </span>
+          </div>
 
-          <div className="text-center mb-8">
-            <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center border border-cyan-500/50 mx-auto mb-4">
-              {step === 'form' ? <Rocket className="w-6 h-6 text-cyan-400" /> : <ShieldCheck className="w-6 h-6 text-green-400" />}
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 flex items-center justify-center border border-cyan-500/30 mx-auto mb-4 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+              <Rocket className="w-8 h-8 text-cyan-400" />
             </div>
-            <h1 className="text-2xl font-bold font-tech text-white mb-2">
-              {step === 'form' ? 'Initialize Protocol' : 'Verify Identity'}
+            <h1 className="text-3xl font-bold font-tech text-white mb-2 tracking-tight">
+              Create Account
             </h1>
-            <p className="text-slate-400 text-sm">
-              {step === 'form' ? 'Create your command identity.' : `Enter the security code sent to ${email}`}
+            <p className="text-slate-400 text-xs max-w-sm mx-auto leading-relaxed">
+              Join BrandPilot to orchestrate, analyze, and automate multi-channel brand campaigns.
             </p>
           </div>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-900/30 border border-red-800 rounded-lg text-red-300 text-xs text-center">
-              {error}
+            <div className="mb-6 p-3.5 bg-red-950/50 border border-red-800/80 rounded-xl text-red-300 text-xs flex items-start gap-2.5 animate-in fade-in zoom-in-95">
+              <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold">Error: </span>
+                {error}
+              </div>
             </div>
           )}
 
-          {step === 'form' ? (
-            <form onSubmit={handleSignup} className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-xs font-mono text-slate-500 uppercase">Full Name</label>
-                <div className="relative">
-                  <User className="absolute left-3 top-3.5 w-4 h-4 text-slate-500" />
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all outline-none"
-                    placeholder="Commander Shepard"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-mono text-slate-500 uppercase">Email Address</label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-3.5 w-4 h-4 text-slate-500" />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all outline-none"
-                    placeholder="name@company.com"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-mono text-slate-500 uppercase">Password</label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-3.5 w-4 h-4 text-slate-500" />
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all outline-none"
-                    placeholder="••••••••"
-                    required
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl font-bold text-white shadow-lg shadow-purple-500/20 hover:scale-[1.02] transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Create Account'}
-              </button>
-
-              <div className="my-6 flex items-center gap-4">
-                <div className="h-px bg-slate-800 flex-1" />
-                <span className="text-xs text-slate-500 font-mono uppercase">Or Continue With</span>
-                <div className="h-px bg-slate-800 flex-1" />
-              </div>
-
-              <div className="grid grid-cols-1 gap-4">
-                <button
-                  type="button"
-                  onClick={handleContinueWithGoogle}
-                  disabled={loading}
-                  className="w-full py-3 px-4 rounded-xl border border-slate-700 bg-slate-900/70 hover:bg-slate-800 hover:border-slate-500 transition-all flex items-center justify-center gap-3 text-slate-200 hover:text-white font-medium shadow-sm hover:shadow-cyan-500/10 active:scale-[0.99] group cursor-pointer"
-                >
-                  <GoogleIcon className="w-5 h-5 transition-transform group-hover:scale-110" />
-                  <span>Continue with Google</span>
-                </button>
-              </div>
-
-              <div className="mt-4 text-center">
-                <Link to="/login" className="text-xs text-slate-500 hover:text-cyan-400 transition-colors">
-                  Forgot Password?
-                </Link>
-              </div>
-            </form>
-          ) : (
-            <form onSubmit={handleVerify} className="space-y-6">
-              <div className="space-y-2">
-                <label className="text-xs font-mono text-slate-500 uppercase block text-center">Verification Code</label>
+          <form onSubmit={handleSignup} className="space-y-3.5">
+            
+            {/* Full Name */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest block">
+                Full Name *
+              </label>
+              <div className="relative">
+                <User className="absolute left-3.5 top-3 w-4 h-4 text-slate-500" />
                 <input
                   type="text"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  className="w-full bg-slate-900/50 border border-cyan-500/50 rounded-xl py-4 text-center text-2xl font-mono tracking-[1em] text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  placeholder="000000"
-                  maxLength={6}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Alex Morgan"
                   required
+                  className="w-full bg-slate-900/60 border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-white focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all outline-none text-xs placeholder:text-slate-600"
                 />
-                <p className="text-center text-xs text-slate-500">A code has been sent to your email.</p>
               </div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 rounded-xl font-bold text-white shadow-lg shadow-green-500/20 hover:scale-[1.02] transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Verify & Launch'}
-              </button>
-            </form>
-          )}
+            </div>
+
+            {/* Email Address */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest block">
+                Work Email Address *
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-3 w-4 h-4 text-slate-500" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="alex@company.com"
+                  required
+                  className="w-full bg-slate-900/60 border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-white focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all outline-none text-xs placeholder:text-slate-600"
+                />
+              </div>
+            </div>
+
+            {/* Mobile Number */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest block">
+                Mobile Number (Optional)
+              </label>
+              <div className="relative">
+                <Phone className="absolute left-3.5 top-3 w-4 h-4 text-slate-500" />
+                <input
+                  type="tel"
+                  value={mobile}
+                  onChange={(e) => setMobile(e.target.value)}
+                  placeholder="+1 555-0199"
+                  className="w-full bg-slate-900/60 border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-white focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all outline-none text-xs placeholder:text-slate-600"
+                />
+              </div>
+            </div>
+
+            {/* Password */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest block">
+                Access Password *
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-3 w-4 h-4 text-slate-500" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Create secure password"
+                  required
+                  className="w-full bg-slate-900/60 border border-slate-700 rounded-xl py-2.5 pl-10 pr-10 text-white focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all outline-none text-xs placeholder:text-slate-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-3 text-slate-500 hover:text-slate-300"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Confirm Password */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest block">
+                Confirm Password *
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-3 w-4 h-4 text-slate-500" />
+                <input
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter password"
+                  required
+                  className={`w-full bg-slate-900/60 border rounded-xl py-2.5 pl-10 pr-10 text-white transition-all outline-none text-xs placeholder:text-slate-600 ${
+                    confirmPassword && !passwordsMatch
+                      ? 'border-red-500 focus:border-red-500'
+                      : 'border-slate-700 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3.5 top-3 text-slate-500 hover:text-slate-300"
+                >
+                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Password Policy Real-time Matrix */}
+            <div className="p-2.5 bg-slate-900/60 border border-slate-800 rounded-xl space-y-1 text-[10px]">
+              <div className="font-mono text-slate-400 uppercase tracking-wider font-bold">
+                Security Requirements:
+              </div>
+              <div className="grid grid-cols-2 gap-1 font-mono">
+                <span className={hasMinLength ? 'text-green-400' : 'text-slate-500'}>
+                  {hasMinLength ? '✓' : '○'} Min 8 chars
+                </span>
+                <span className={hasUpper ? 'text-green-400' : 'text-slate-500'}>
+                  {hasUpper ? '✓' : '○'} Uppercase letter
+                </span>
+                <span className={hasLower ? 'text-green-400' : 'text-slate-500'}>
+                  {hasLower ? '✓' : '○'} Lowercase letter
+                </span>
+                <span className={hasNumber ? 'text-green-400' : 'text-slate-500'}>
+                  {hasNumber ? '✓' : '○'} Number (0-9)
+                </span>
+                <span className={hasSpecial ? 'text-green-400' : 'text-slate-500'}>
+                  {hasSpecial ? '✓' : '○'} Special char (!@#)
+                </span>
+                <span className={passwordsMatch ? 'text-green-400' : 'text-slate-500'}>
+                  {passwordsMatch ? '✓' : '○'} Passwords match
+                </span>
+              </div>
+            </div>
+
+            {/* Terms Agreement */}
+            <div className="flex items-start gap-2 pt-1 text-xs text-slate-400">
+              <input
+                type="checkbox"
+                id="terms"
+                checked={agreeTerms}
+                onChange={(e) => setAgreeTerms(e.target.checked)}
+                className="mt-0.5 rounded border-slate-700 text-cyan-500 focus:ring-cyan-500 bg-slate-900"
+              />
+              <label htmlFor="terms" className="leading-snug text-[11px]">
+                I agree to BrandPilot's{' '}
+                <Link to="/terms" target="_blank" className="text-cyan-400 hover:underline">
+                  Terms & Conditions
+                </Link>{' '}
+                and Privacy Policy.
+              </label>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || !isPasswordValid || !passwordsMatch || !agreeTerms}
+              className="w-full py-3.5 bg-gradient-to-r from-cyan-600 via-cyan-500 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-xl font-bold text-white shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 uppercase text-xs tracking-widest cursor-pointer"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" /> Creating Account...
+                </>
+              ) : (
+                <>
+                  Create Account & Send OTP <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Social Sign In Divider */}
+          <div className="my-5 flex items-center gap-4">
+            <div className="h-px bg-slate-800 flex-1" />
+            <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Or Continue With</span>
+            <div className="h-px bg-slate-800 flex-1" />
+          </div>
+
+          {/* Real Google OAuth Button */}
+          <button
+            type="button"
+            onClick={handleContinueWithGoogle}
+            disabled={loading}
+            className="w-full py-3 px-4 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 hover:border-slate-500 transition-all flex items-center justify-center gap-3 text-slate-200 hover:text-white font-medium shadow-sm hover:shadow-cyan-500/10 active:scale-[0.99] group text-xs cursor-pointer"
+          >
+            <GoogleIcon className="w-4 h-4 transition-transform group-hover:scale-110" />
+            <span>Continue with Google</span>
+          </button>
+
+          <div className="mt-6 text-center text-xs text-slate-400">
+            Already registered?{' '}
+            <Link to="/login" className="text-cyan-400 hover:text-cyan-300 font-bold uppercase tracking-wider">
+              Login to Account
+            </Link>
+          </div>
 
         </div>
       </div>

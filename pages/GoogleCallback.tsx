@@ -8,7 +8,7 @@ import GoogleIcon from '../components/GoogleIcon';
 export const GoogleCallback: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { loginWithGoogleCode } = useAuth();
+  const { loginWithGoogleCode, refreshUser } = useAuth();
   
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [errorMessage, setErrorMessage] = useState('');
@@ -33,6 +33,7 @@ export const GoogleCallback: React.FC = () => {
           if (userParam) {
             localStorage.setItem('brandpilot_session', decodeURIComponent(userParam));
           }
+          refreshUser();
           setStatus('success');
           setTimeout(() => navigate('/', { replace: true }), 1200);
           return;

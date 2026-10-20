@@ -1,6 +1,5 @@
-
-import React, { createContext, useState, useEffect } from 'react';
-import { HashRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import React from 'react';
+import { HashRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Generator from './pages/Generator';
@@ -12,18 +11,23 @@ import Personas from './pages/Personas';
 import History from './pages/History';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import VerifyOtp from './pages/VerifyOtp';
+import ForgotPassword from './pages/ForgotPassword';
+import Terms from './pages/Terms';
+import Pricing from './pages/Pricing';
+import MarketSimilarity from './pages/MarketSimilarity';
+import ContentSimilarity from './pages/ContentSimilarity';
 import GoogleCallback from './pages/GoogleCallback';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { BrandIdentity, MultiChannelCampaign, AppSettings, Persona, BrandContextType } from './types';
 import { Loader2 } from 'lucide-react';
-import { db } from './services/db';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 
 // Context
 import { BrandProvider } from './contexts/BrandContext';
 
 const ProtectedRoute = () => {
-  const { isAuthenticated, isLoading, isVerified } = useAuth();
+  const { isAuthenticated, isLoading, isVerified, user } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -33,8 +37,19 @@ const ProtectedRoute = () => {
     );
   }
 
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (!isVerified) return <Navigate to="/signup" replace />;
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (!isVerified) {
+    return (
+      <Navigate 
+        to={`/verify-otp?email=${encodeURIComponent(user?.email || '')}`} 
+        state={{ from: location, email: user?.email }} 
+        replace 
+      />
+    );
+  }
 
   return (
     <Layout>
@@ -52,10 +67,16 @@ const App: React.FC = () => {
         <BrandProvider>
           <HashRouter>
             <Routes>
+              {/* Public & Authentication Routes */}
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
+              <Route path="/verify-otp" element={<VerifyOtp />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ForgotPassword />} />
+              <Route path="/terms" element={<Terms />} />
               <Route path="/auth/google/callback" element={<GoogleCallback />} />
 
+              {/* Protected Workspace Routes */}
               <Route element={<ProtectedRoute />}>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/brand-dna" element={<BrandDNA />} />
@@ -65,8 +86,14 @@ const App: React.FC = () => {
                 <Route path="/analytics" element={<Analytics />} />
                 <Route path="/history" element={<History />} />
                 <Route path="/personas" element={<Personas />} />
+                <Route path="/market-similarity" element={<MarketSimilarity />} />
+                <Route path="/content-similarity" element={<ContentSimilarity />} />
+                <Route path="/pricing" element={<Pricing />} />
                 <Route path="/settings" element={<Settings />} />
               </Route>
+
+              {/* Fallback Catch-all Route */}
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </HashRouter>
         </BrandProvider>

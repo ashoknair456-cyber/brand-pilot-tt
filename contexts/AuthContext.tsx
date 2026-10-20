@@ -1,6 +1,5 @@
-
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User } from '../types';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { User, SubscriptionPlan, SubscriptionUsage } from '../types';
 import { db } from '../services/db';
 
 const API_BASE = 'http://localhost:5005/api';
@@ -10,18 +9,25 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   isVerified: boolean;
+  plan: SubscriptionPlan;
   login: (email: string, pass: string) => Promise<any>;
-  signup: (name: string, email: string, pass: string) => Promise<void>;
+  signup: (name: string, email: string, pass: string, mobile?: string, termsAccepted?: boolean) => Promise<any>;
   verifyEmail: (email: string, code: string) => Promise<void>;
+  verifyOtp: (email: string, code: string) => Promise<void>;
+  resendOtp: (email: string) => Promise<any>;
   loginWithGoogleToken: (token: string) => Promise<void>;
   loginWithGoogleCode: (code: string, redirectUri?: string) => Promise<void>;
   loginWithGoogleCredential: (credential: string) => Promise<void>;
   getGoogleAuthUrl: () => Promise<string>;
-  updateProfile: (name: string, password?: string) => Promise<void>;
+  updateProfile: (profileData: Partial<User>) => Promise<User>;
   changePassword: (oldPass: string, newPass: string) => Promise<void>;
-  requestPasswordReset: (email: string) => Promise<void>;
-  resetPassword: (email: string, code: string, newPass: string) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<any>;
+  resetPassword: (email: string, code: string, newPass: string) => Promise<any>;
   verifyTwoStep: (email: string, code?: string, backup?: string) => Promise<void>;
+  upgradePlan: (plan: 'basic' | 'pro', interval?: 'monthly' | 'yearly', paymentDetails?: any) => Promise<any>;
+  cancelPlan: () => Promise<any>;
+  logoutAllDevices: () => Promise<void>;
+  refreshUser: () => void;
   logout: () => void;
 }
 
@@ -33,11 +39,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
+  const refreshUser = useCallback(() => {
     const sessionUser = db.getSession();
-    if (sessionUser) setUser(sessionUser);
-    setIsLoading(false);
+    if (sessionUser) {
+      setUser(sessionUser);
+    } else {
+      setUser(null);
+    }
   }, []);
+
+  useEffect(() => {
+    refreshUser();
+    setIsLoading(false);
+  }, [refreshUser]);
 
   // ── LOGIN ──────────────────────────────────────────────
   const login = async (email: string, pass: string): Promise<any> => {
@@ -57,29 +71,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // ── SIGNUP ─────────────────────────────────────────────
-  const signup = async (name: string, email: string, pass: string) => {
+  const signup = async (name: string, email: string, pass: string, mobile?: string, termsAccepted: boolean = true) => {
     const res = await fetch(`${API_BASE}/auth/signup`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password: pass })
+      body: JSON.stringify({ name, email, password: pass, mobile, termsAccepted })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || data.message || 'Signup failed');
-
-    // Send verification OTP
-    try {
-      await fetch(`${API_BASE}/auth/send-verification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
-    } catch {
-      console.warn('OTP send failed — check server email config');
-    }
-    // Don't create session yet — wait for email verification
+    return data;
   };
 
-  // ── VERIFY EMAIL ───────────────────────────────────────
+  // ── VERIFY EMAIL / OTP ──────────────────────────────────
   const verifyEmail = async (email: string, code: string) => {
     const res = await fetch(`${API_BASE}/auth/verify-email`, {
       method: 'POST',
@@ -88,9 +91,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Verification failed');
-    // Auto-login after verification
-    db.createSession(data.user);
-    setUser(data.user);
+    if (data.user) {
+      db.createSession(data.user);
+      setUser(data.user);
+    }
+  };
+
+  const verifyOtp = verifyEmail;
+
+  // ── RESEND OTP ──────────────────────────────────────────
+  const resendOtp = async (email: string) => {
+    const res = await fetch(`${API_BASE}/auth/send-verification`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to resend verification code');
+    return data;
   };
 
   // ── GOOGLE LOGIN (TOKEN, CODE, CREDENTIAL) ───────────────
@@ -138,23 +156,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // ── UPDATE PROFILE ─────────────────────────────────────
-  const updateProfile = async (name: string, password?: string) => {
-    if (!user) return;
-    const updatedUser = { ...user, name };
-    setUser(updatedUser);
-    await fetch(`${API_BASE}/users/update`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: user.id, name, avatar: user.avatar })
-    });
+  const updateProfile = async (profileData: Partial<User>): Promise<User> => {
+    if (!user) throw new Error('Not authenticated');
+    const updated = await db.updateProfile(profileData);
+    const mergedUser = { ...user, ...updated };
+    db.createSession(mergedUser);
+    setUser(mergedUser);
+    return mergedUser;
   };
 
   // ── CHANGE PASSWORD ────────────────────────────────────
   const changePassword = async (oldPass: string, newPass: string) => {
     if (!user) throw new Error('Not logged in');
+    const token = localStorage.getItem('token');
     const res = await fetch(`${API_BASE}/auth/change-password`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
       body: JSON.stringify({ userId: user.id, oldPassword: oldPass, newPassword: newPass })
     });
     const data = await res.json();
@@ -163,13 +183,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // ── PASSWORD RESET ─────────────────────────────────────
   const requestPasswordReset = async (email: string) => {
-    const res = await fetch(`${API_BASE}/auth/send-verification`, {
+    const res = await fetch(`${API_BASE}/auth/request-reset`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to send reset code');
+    return data;
   };
 
   const resetPassword = async (email: string, otp: string, newPass: string) => {
@@ -180,6 +201,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to reset password');
+    return data;
+  };
+
+  // ── SUBSCRIPTION PLANS ─────────────────────────────────
+  const upgradePlan = async (plan: 'basic' | 'pro', interval: 'monthly' | 'yearly' = 'monthly', paymentDetails?: any) => {
+    const data = await db.upgradeSubscription(plan, interval, paymentDetails);
+    if (data.user) {
+      setUser(data.user);
+    }
+    return data;
+  };
+
+  const cancelPlan = async () => {
+    const data = await db.cancelSubscription();
+    if (data.user) {
+      setUser(data.user);
+    }
+    return data;
+  };
+
+  // ── LOGOUT FROM ALL DEVICES ────────────────────────────
+  const logoutAllDevices = async () => {
+    await db.logoutAll();
+    logout();
   };
 
   // ── LOGOUT ─────────────────────────────────────────────
@@ -203,15 +248,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const currentPlan: SubscriptionPlan = user?.plan || 'free';
+
   return (
     <AuthContext.Provider value={{
       user,
       isAuthenticated: !!user,
       isVerified: user ? Boolean(user.isVerified) : false,
       isLoading,
+      plan: currentPlan,
       login,
       signup,
       verifyEmail,
+      verifyOtp,
+      resendOtp,
       loginWithGoogleToken,
       loginWithGoogleCode,
       loginWithGoogleCredential,
@@ -221,6 +271,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       requestPasswordReset,
       resetPassword,
       verifyTwoStep,
+      upgradePlan,
+      cancelPlan,
+      logoutAllDevices,
+      refreshUser,
       logout,
     }}>
       {children}
