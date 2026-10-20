@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # BRAND_PILOT_TT
 BrandPilot AI is an AI-powered brand management platform that helps businesses build, manage, and scale their brand with intelligent marketing automation, content generation, and data-driven insights.
 
@@ -21,3 +22,6 @@ View your app in AI Studio: https://ai.studio/apps/drive/1_owHyq5swq4LdvONnCihUn
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+=======
+# brand-pilot-tt
+>>>>>>> c03c1960a86daa18f60996670665847f76898548
